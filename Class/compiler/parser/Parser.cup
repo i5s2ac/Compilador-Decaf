@@ -1,0 +1,424 @@
+package compiler.parser;
+
+import java_cup.runtime.*;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.FileWriter;
+import java.io.PrintWriter;
+import compiler.scanner.Scanner;
+import compiler.ast.*;
+import java.util.*;
+
+parser code {:
+    private Scanner scanner;
+
+    public Parser(Scanner scanner) {
+        this.scanner = scanner;
+    }
+
+    public Symbol scan() throws Exception {
+        return scanner.next_token();
+    }
+
+    public void syntax_error(Symbol s) {
+        report_error(
+            "Error de sintaxis en línea " + (s.left) + ", columna " + (s.right)
+            + ". Token inesperado: " + s.value, null
+        );
+    }
+:}
+
+/* Terminales */
+terminal CLASS, LBRACE, RBRACE, SEMI, INT, BOOLEAN, CHAR, VOID;
+terminal IF, ELSE, FOR, WHILE, RETURN, BREAK, CONTINUE, CALLOUT;
+terminal ASSIGN, PLUS_ASSIGN, MINUS_ASSIGN, PLUS, MINUS, TIMES, DIVIDE;
+terminal MOD, EQ, NEQ, LT, GT, LE, GE, AND, OR, NOT, TRUE, FALSE;
+terminal COMMA, LPAREN, RPAREN, LBRACKET, RBRACKET, NEW, UMINUS;
+terminal String ID, STRING_LITERAL, CHAR_LITERAL;
+terminal Integer INT_LITERAL;
+
+/* No terminales */
+non terminal Program program;
+non terminal List<ClassBodyMember> class_body_member_list;
+non terminal ClassBodyMember class_body_member;
+non terminal List<Statement> statement_list;
+non terminal Statement statement;
+non terminal Block block;
+non terminal List<VarDecl> var_decl_list;
+non terminal List<VarDecl> var_decl;
+non terminal List<Variable> id_plus_array_list;
+non terminal Variable id_with_optional_array;
+non terminal Type type;
+non terminal List<Param> param_list;
+non terminal Param param;
+non terminal Location location;
+non terminal Expressin eoxpr, expr_opt;
+non terminal Expression assign_opt;
+non terminal String assign_op;
+non terminal MethodCall method_call;
+non terminal String method_name;
+non terminal List<Expression> expr_plus_list, expr_plus_list_opt;
+non terminal List<CalloutArg> opt_comma_callout_arg_list, callout_arg_list;
+non terminal CalloutArg callout_arg;
+non terminal Statement for_init_expr;
+non terminal Statement for_update_stmt; 
+non terminal AssignExpr assign_expr;
+non terminal String bin_op, arith_op, rel_op, eq_op, cond_op;
+non terminal Literal literal;
+non terminal IntLiteral int_literal;
+non terminal CharLiteral char_literal;
+non terminal BoolLiteral bool_literal;
+
+/* Precedencias */
+precedence left OR;
+precedence left AND;
+precedence nonassoc EQ, NEQ;
+precedence nonassoc LT, GT, LE, GE;
+precedence left PLUS, MINUS;
+precedence left TIMES, DIVIDE, MOD;
+precedence right NOT;
+precedence right UMINUS;
+
+/* Símbolo inicial */
+start with program;
+
+/* Reglas de la gramática */
+program ::= CLASS ID:id LBRACE class_body_member_list:cbml RBRACE
+          {: RESULT = new Program((String)id, cbml); :}
+          ;
+
+class_body_member_list ::= class_body_member_list:cbml class_body_member:cbm
+                            {: cbml.add(cbm); RESULT = cbml; :}
+                          | /* vacío */
+                            {: RESULT = new ArrayList<>(); :}
+                          ;
+
+class_body_member ::= type:t id_plus_array_list:vars SEMI
+                        {: 
+                            List<ClassBodyMember> members = new ArrayList<>();
+                            for (Variable var : vars) {
+                                members.add(new VarDecl(t, var.getName(), var.isArray(), null));
+                            }
+                            RESULT = new MultiVarDecl(members);
+                        :}
+                     | VOID ID:id LPAREN param_list:params RPAREN block:b
+                        {: RESULT = new MethodDecl(new VoidType(), (String)id, params, b); :}
+                     | type:t ID:id LPAREN param_list:params RPAREN block:b
+                        {: RESULT = new MethodDecl(t, (String)id, params, b); :}
+                     ;
+
+id_with_optional_array ::= ID:id
+                            {: RESULT = new Variable((String)id, false); :}
+                          | ID:id LBRACKET RBRACKET
+                            {: RESULT = new Variable((String)id, true); :}
+                          ;
+
+assign_opt ::= ASSIGN expr:e
+                 {: RESULT = e; :}
+               | /* vacío */
+                 {: RESULT = null; :}
+               ;
+
+param_list ::= param_list:pl COMMA param:p
+                 {: pl.add(p); RESULT = pl; :}
+               | param:p
+                 {: 
+                     List<Param> pl = new ArrayList<>();
+                     pl.add(p);
+                     RESULT = pl;
+                 :}
+               | /* vacío */
+                 {: RESULT = new ArrayList<>(); :}
+               ;
+
+param ::= type:t id_with_optional_array:var
+            {: RESULT = new Param(t, var.getName(), var.isArray()); :}
+          ;
+
+block ::= LBRACE var_decl_list:vars statement_list:stmts RBRACE
+            {: RESULT = new Block(vars, stmts); :}
+          ;
+
+var_decl_list ::= var_decl_list:vl var_decl:v
+                    {: vl.addAll(v); RESULT = vl; :}
+                  | /* vacío */
+                    {: RESULT = new ArrayList<>(); :}
+                  ;
+
+var_decl ::= type:t id_plus_array_list:vars assign_opt:aopt SEMI
+               {:
+                   List<VarDecl> varDecls = new ArrayList<>();
+                   for (Variable var : vars) {
+                       varDecls.add(new VarDecl(t, var.getName(), var.isArray(), aopt));
+                   }
+                   RESULT = varDecls;
+               :}
+             ;
+
+id_plus_array_list ::= id_plus_array_list:vars COMMA id_with_optional_array:var
+                         {: vars.add(var); RESULT = vars; :}
+                       | id_with_optional_array:var
+                         {:
+                             List<Variable> vars = new ArrayList<>();
+                             vars.add(var);
+                             RESULT = vars;
+                         :}
+                       ;
+
+statement_list ::= statement_list:sl statement:s
+                    {: sl.add(s); RESULT = sl; :}
+                  | /* vacío */
+                    {: RESULT = new ArrayList<>(); :}
+                  ;
+
+statement ::= location:l assign_op:op expr:e SEMI
+           {: 
+               System.out.println("Debug: Creando AssignStmt");
+               RESULT = new AssignStmt(l, op, e); 
+           :}
+         | method_call:mcall SEMI
+           {: 
+               System.out.println("Debug: Creando MethodCallStmt");
+               RESULT = new MethodCallStmt(mcall); 
+           :}
+         | IF LPAREN expr:cond RPAREN block:then_block ELSE block:else_block
+           {: 
+               System.out.println("Debug: Creando IfStmt con else");
+               RESULT = new IfStmt(cond, then_block, else_block); 
+           :}
+         | IF LPAREN expr:cond RPAREN block:then_block
+           {: 
+               System.out.println("Debug: Creando IfStmt sin else");
+               RESULT = new IfStmt(cond, then_block, null); 
+           :}
+         | WHILE LPAREN expr:cond RPAREN block:body
+           {: 
+               System.out.println("Debug: Creando WhileStmt");
+               RESULT = new WhileStmt(cond, body); 
+           :}
+         | FOR LPAREN for_init_expr:init SEMI expr_opt:cond SEMI for_update_stmt:update RPAREN block:body
+           {: 
+               System.out.println("Debug: Creando ForStmt");
+               RESULT = new ForStmt(init, cond, update, body); 
+           :}
+         | RETURN expr_opt:eopt SEMI
+           {: 
+               System.out.println("Debug: Creando ReturnStmt");
+               RESULT = new ReturnStmt(eopt); 
+           :}
+         | BREAK SEMI
+           {: 
+               System.out.println("Debug: Creando BreakStmt");
+               RESULT = new BreakStmt(); 
+           :}
+         | CONTINUE SEMI
+           {: 
+               System.out.println("Debug: Creando ContinueStmt");
+               RESULT = new ContinueStmt(); 
+           :}
+         | block:b
+           {: 
+               System.out.println("Debug: Creando Block");
+               RESULT = b; 
+           :}
+         ;
+
+for_init_expr ::= type:t id_with_optional_array:var assign_op:op expr:e
+                   {:
+                       VarDecl varDecl = new VarDecl(t, var.getName(), var.isArray(), null);
+                       RESULT = new VarDeclStmt(varDecl, e);
+                   :}
+                 | assign_expr:aexpr
+                   {: RESULT = new ExprStmt(aexpr); :}
+                 | /* vacío */
+                   {: RESULT = null; :}
+                 ;
+
+expr_opt ::= expr:e
+              {: RESULT = e; :}
+           | /* vacío */
+              {: RESULT = null; :}
+           ;
+
+for_update_stmt ::= assign_expr:aexpr
+                   {: 
+                       System.out.println("Debug: Creando ExprStmt para for_update_stmt");
+                       RESULT = new ExprStmt(aexpr); 
+                   :}
+                 | expr:e
+                   {: 
+                       System.out.println("Debug: Creando ExprStmt para for_update_stmt con expr:e");
+                       RESULT = new ExprStmt(e); 
+                   :}
+                 | /* vacío */
+                   {: 
+                       System.out.println("Debug: Creando for_update_stmt como null");
+                       RESULT = null; 
+                   :}
+                 ;
+
+assign_expr ::= location:l assign_op:op expr:e
+                 {: RESULT = new AssignExpr(l, op, e); :}
+               ;
+
+assign_op ::= ASSIGN
+               {: RESULT = "="; :}
+             | PLUS_ASSIGN
+               {: RESULT = "+="; :}
+             | MINUS_ASSIGN
+               {: RESULT = "-="; :}
+             ;
+
+location ::= ID:id
+              {: RESULT = new VarLocation((String)id); :}
+            | ID:id LBRACKET expr:e RBRACKET
+              {: RESULT = new ArrayLocation((String)id, e); :}
+            ;
+
+method_call ::= method_name:name LPAREN expr_plus_list_opt:args RPAREN
+             {: 
+                 System.out.println("Debug: Creando MethodCall");
+                 RESULT = new MethodCall(name, args); 
+             :}
+           | CALLOUT LPAREN STRING_LITERAL:str opt_comma_callout_arg_list:args RPAREN
+             {: 
+                 System.out.println("Debug: Creando CalloutCall");
+                 RESULT = new CalloutCall((String) str, args); 
+             :}
+           ;
+
+method_name ::= ID:id
+                 {: RESULT = (String)id; :}
+               ;
+
+expr_plus_list_opt ::= expr_plus_list:el
+                        {: RESULT = el; :}
+                      | /* vacío */
+                        {: RESULT = new ArrayList<>(); :}
+                      ;
+
+expr_plus_list ::= expr_plus_list:el COMMA expr:e
+                    {: el.add(e); RESULT = el; :}
+                  | expr:e
+                    {:
+                        List<Expression> el = new ArrayList<>();
+                        el.add(e);
+                        RESULT = el;
+                    :}
+                  ;
+
+opt_comma_callout_arg_list ::= COMMA callout_arg_list:args
+                                {: RESULT = args; :}
+                              | /* vacío */
+                                {: RESULT = new ArrayList<>(); :}
+                              ;
+
+callout_arg_list ::= callout_arg_list:al COMMA callout_arg:a
+                       {: al.add(a); RESULT = al; :}
+                     | callout_arg:a
+                       {:
+                           List<CalloutArg> al = new ArrayList<>();
+                           al.add(a);
+                           RESULT = al;
+                       :}
+                     ;
+
+callout_arg ::= expr:e
+               {: RESULT = new ExprArg(e); :}
+             | STRING_LITERAL:str
+               {: RESULT = new StringArg((String)str); :}
+             ;
+
+expr ::= location:l
+           {: RESULT = l; :}
+         | method_call:mcall
+           {: RESULT = mcall; :}
+         | literal:l
+           {: RESULT = l; :}
+         | expr:e1 bin_op:op expr:e2
+           {: RESULT = new BinaryExpr(e1, op, e2); :}
+         | MINUS expr:e
+           {: RESULT = new UnaryExpr("-", e); :} %prec UMINUS
+         | NOT expr:e
+           {: RESULT = new UnaryExpr("!", e); :}
+         | NEW type:t LBRACKET expr:e RBRACKET
+           {: RESULT = new NewArrayExpr(t, e); :}
+         | LPAREN expr:e RPAREN
+           {: RESULT = e; :}
+         ;
+
+bin_op ::= arith_op:op
+            {: RESULT = op; :}
+          | rel_op:op
+            {: RESULT = op; :}
+          | eq_op:op
+            {: RESULT = op; :}
+          | cond_op:op
+            {: RESULT = op; :}
+          ;
+
+arith_op ::= PLUS
+              {: RESULT = "+"; :}
+            | MINUS
+              {: RESULT = "-"; :}
+            | TIMES
+              {: RESULT = "*"; :}
+            | DIVIDE
+              {: RESULT = "/"; :}
+            | MOD
+              {: RESULT = "%"; :}
+            ;
+
+rel_op ::= LT
+            {: RESULT = "<"; :}
+          | GT
+            {: RESULT = ">"; :}
+          | LE
+            {: RESULT = "<="; :}
+          | GE
+            {: RESULT = ">="; :}
+          ;
+
+eq_op ::= EQ
+           {: RESULT = "=="; :}
+         | NEQ
+           {: RESULT = "!="; :}
+         ;
+
+cond_op ::= AND
+           {: RESULT = "&&"; :}
+         | OR
+           {: RESULT = "||"; :}
+         ;
+
+literal ::= int_literal:i
+           {: RESULT = i; :}
+         | char_literal:c
+           {: RESULT = c; :}
+         | bool_literal:b
+           {: RESULT = b; :}
+         ;
+
+int_literal ::= INT_LITERAL:i
+    {: RESULT = new IntLiteral(i); :}
+    ;
+
+char_literal ::= CHAR_LITERAL:c
+                {: RESULT = new CharLiteral(((String)c).charAt(0)); :}
+              ;
+
+/* Literal booleano */
+bool_literal ::= TRUE
+                {: RESULT = new BoolLiteral(true); :}
+             | FALSE
+                {: RESULT = new BoolLiteral(false); :}
+             ;
+
+/* Tipos de datos */
+type ::= INT
+          {: RESULT = new IntType(); :}
+       | BOOLEAN
+          {: RESULT = new BooleanType(); :}
+       | CHAR
+          {: RESULT = new CharType(); :}
+       ;

@@ -1,0 +1,18 @@
+digraph IR {
+  node [shape=box, fontname="Arial"];
+  node0 [label="SEQ"];
+  node2 [label="LABEL: main"];
+  node0 -> node1;
+  node4 [label="LABEL: main_prologue"];
+  node0 -> node3;
+  node6 [label="MOVE"];
+  node7 [label="TEMP x"];
+  node6 -> node7;
+  node8 [label="CONST 42"];
+  node6 -> node8;
+  node0 -> node5;
+  node10 [label="LABEL: main_end"];
+  node0 -> node9;
+  node12 [label="RETURN"];
+  node0 -> node11;
+}

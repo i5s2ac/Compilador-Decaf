@@ -1,0 +1,26 @@
+stage: IR generation
+LABEL main
+LABEL main_prologue
+MOVE TEMP x, CONST 1
+MOVE TEMP y, CONST 2
+MOVE TEMP suma, BINOP(PLUS, TEMP x, BINOP(PLUS, TEMP y, CONST 5))
+LABEL for_init_0
+MOVE TEMP i, CONST 0
+LABEL for_test_0
+CJUMP(NE, BINOP(LT, TEMP i, CONST 5), CONST 0, for_body_0, for_end_0)
+LABEL for_body_0
+MOVE TEMP suma, BINOP(PLUS, TEMP i, TEMP x)
+CJUMP(NE, BINOP(EQ, TEMP i, CONST 3), CONST 0, if_true_0, if_false_0)
+LABEL if_true_0
+JUMP NAME for_end_0
+JUMP NAME if_end_0
+LABEL if_false_0
+LABEL if_end_0
+LABEL for_update_0
+MOVE TEMP i, BINOP(PLUS, TEMP i, CONST 1)
+EXPR TEMP i
+JUMP NAME for_test_0
+LABEL for_end_0
+LABEL main_end
+RETURN
+

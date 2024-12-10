@@ -1,0 +1,23 @@
+class Program {
+    /* Variables globales */
+    int x;
+    int y;
+    int suma;
+    
+    
+    void main() {
+       x =1;
+       y=2;
+       suma=x+y + 5;
+
+       for (int i = 0; i < 5; i = i + 1) {
+            suma = i + x;
+            if (i == 3) {
+                break;
+            }
+       }
+
+
+    }
+
+}
